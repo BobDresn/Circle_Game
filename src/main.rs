@@ -19,6 +19,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, movement)
         .add_systems(Update, draw_circle)
+        //.add_systems(PostUpdate, print_position)
         .run();
 }
 
@@ -33,7 +34,6 @@ struct Velocity {
     value: Vec3,
 }
 
-//Spawns Player and enemy. Only ran on start. Will change to include menu UI and game state 
 fn setup(mut commands: Commands, query: Query<&Window, With<PrimaryWindow>>) {
     let window = query.single();
     let center = Vec2::new(window.width() / 2., window.height() / 2.);
@@ -52,7 +52,7 @@ fn setup(mut commands: Commands, query: Query<&Window, With<PrimaryWindow>>) {
 
     commands.spawn((
         Enemy,
-        Velocity{ value: Vec3::new(5., 1000., 0.) },
+        Velocity{ value: Vec3::new(50., 1000., 0.) },
         Transform::from_translation(Vec3::new(0., 0., 0.)),
     ));
 }
@@ -108,25 +108,31 @@ fn movement(
 
 fn draw_circle(
     mut gizmos: Gizmos, 
-    query: Query<(&Transform, Option<&Player>, Option<&Enemy>)>
+    player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<&Transform, With<Enemy>>
 ) {
     //Draw for player
-    for (transform, player, enemy) in &query {
-        if player.is_some() {
-            gizmos.circle_2d(
-                Vec2::new(transform.translation.x, transform.translation.y),
-                ENTITY_SIZE,
-                Color::WHITE,
-            );
-        }
-        if enemy.is_some() {
-            if player.is_some() {
-                gizmos.circle_2d(
-                    Vec2::new(transform.translation.x, transform.translation.y),
-                    ENTITY_SIZE,
-                    Color::srgb(255., 0., 255.),
-                );
-            }
-        }
+    for transform in &player_query {
+        gizmos.circle_2d(
+            Vec2::new(transform.translation.x, transform.translation.y),
+            ENTITY_SIZE,
+            Color::WHITE,
+        );
+    }
+
+    for transform in &enemy_query {
+        gizmos.circle_2d(
+            Vec2::new(transform.translation.x, transform.translation.y),
+            ENTITY_SIZE,
+            Color::srgb(255., 0., 255.),
+        );
     }
 }
+
+// fn print_position( 
+//     query: Query<&Transform, With<Enemy>> 
+// ) {
+//     for transform in &query {
+//         println!("{}, {}", transform.translation.x, transform.translation.y);
+//     }
+// }
