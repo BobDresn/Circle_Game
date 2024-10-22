@@ -1,7 +1,9 @@
 use bevy::{
+    app::AppExit,
     prelude::*,
     window::{PresentMode, PrimaryWindow}
 };
+use rand::Rng;
 
 const ENTITY_SIZE: f32 = 10.;
 const ENTITY_SPEED: f32 = 500.;
@@ -16,9 +18,11 @@ fn main() {
             }),
             ..default()
         }))
+        .add_event::<AppExit>()
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, movement)
         .add_systems(Update, draw_circle)
+        .add_systems(PostUpdate, check_collisions)
         //.add_systems(PostUpdate, print_position)
         .run();
 }
@@ -50,10 +54,16 @@ fn setup(mut commands: Commands, query: Query<&Window, With<PrimaryWindow>>) {
             Transform::from_translation(Vec3::new(center.x, center.y, 0.)),
     ));
 
+    let mut rng = rand::thread_rng();
+    let rand_x = rng.gen_range(0. .. window.width());
+    let rand_y = rng.gen_range(0. .. window.height());
+    let rand_vel_x = rng.gen_range(-1000. ..=1000.);
+    let rand_vel_y = rng.gen_range(-1000. ..=1000.);
+
     commands.spawn((
         Enemy,
-        Velocity{ value: Vec3::new(50., 1000., 0.) },
-        Transform::from_translation(Vec3::new(0., 0., 0.)),
+        Velocity{ value: Vec3::new(rand_vel_x, rand_vel_y, 0.) },
+        Transform::from_translation(Vec3::new(rand_x, rand_y, 0.)),
     ));
 }
 
@@ -126,6 +136,28 @@ fn draw_circle(
             ENTITY_SIZE,
             Color::srgb(255., 0., 255.),
         );
+    }
+}
+
+fn check_circle_collision(a: Vec2, b: Vec2) -> bool {
+    let distance_squared = (a - b).length_squared();
+    let radius_squared = ENTITY_SIZE * 2.;
+    distance_squared < radius_squared * radius_squared
+}
+
+fn check_collisions(
+    mut exit_events: EventWriter<AppExit>,
+    player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<&Transform, With<Enemy>>,
+) {
+    let player_transform = &player_query.single();
+    let player_center = Vec2::new(player_transform.translation.x, player_transform.translation.y);
+
+    for transform in &enemy_query {
+        let enemy_center = Vec2::new(transform.translation.x, transform.translation.y);
+        if check_circle_collision(player_center, enemy_center) {
+            exit_events.send(AppExit::Success);
+        }
     }
 }
 
