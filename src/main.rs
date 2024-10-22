@@ -17,49 +17,26 @@ fn main() {
             ..default()
         }))
         .add_systems(Startup, setup)
-        .add_systems(PreUpdate, direction_input)
-//        .add_systems(Update, update_position)
-        .add_systems(Update, log_fps)
-        .add_systems(PostUpdate, draw_circle)
+        .add_systems(PreUpdate, movement)
+        .add_systems(Update, draw_circle)
         .run();
 }
 
-///Will either be you or enemy
 #[derive(Component)]
-enum Team {
-    Player, 
-    //Enemy,
-}
+struct Player;
 
-struct FrameCounter {
-    frame_count: u32,
-    elapsed_time: f32,
-}
+#[derive(Component)]
+struct Enemy;
 
-fn log_fps(
-    time: Res<Time>,
-    mut frame_counter: ResMut<FrameCounter>,
-) {
-    frame_counter.frame_count += 1;
-    frame_counter.elapsed_time += time.delta_seconds();
-
-    if frame_counter.elapsed_time >= 1.0 {
-        let fps = frame_counter.frame_count as f32 / frame_counter.elapsed_time;
-        println!("FPS: {:.2}", fps);
-        frame_counter.frame_count = 0;
-        frame_counter.elapsed_time = 0;
-    }
+#[derive(Component)]
+struct Velocity {
+    value: Vec3,
 }
 
 //Spawns Player and enemy. Only ran on start. Will change to include menu UI and game state 
 fn setup(mut commands: Commands, query: Query<&Window, With<PrimaryWindow>>) {
     let window = query.single();
     let center = Vec2::new(window.width() / 2., window.height() / 2.);
-
-    commands.insert_resource(FrameCounter {
-        frame_count: 0,
-        elapsed_time: 0.,
-    });
 
     //Camera
     commands.spawn(Camera2dBundle{
@@ -69,91 +46,87 @@ fn setup(mut commands: Commands, query: Query<&Window, With<PrimaryWindow>>) {
 
     //Player
     commands.spawn((
-            Team::Player,
+            Player,
             Transform::from_translation(Vec3::new(center.x, center.y, 0.)),
     ));
-    // commands.spawn(
-    // (
-    //     Team::Enemy,
-    //     Position{ value: center }, 
-    //     Velocity{ value: Vec2::new(100., 100.) },
-    // ));
+
+    commands.spawn((
+        Enemy,
+        Velocity{ value: Vec3::new(5., 1000., 0.) },
+        Transform::from_translation(Vec3::new(0., 0., 0.)),
+    ));
 }
 
 //Handle keystrokes
-fn direction_input(
+fn movement(
     input: Res<ButtonInput<KeyCode>>,
-    mut query: Query<&mut Transform, With<Team>>,
+    mut query: Query<(&mut Transform, Option<&Player>, Option<&mut Velocity>), With<Transform>>,
     time: Res<Time>,
     window_query: Query<&Window, With<PrimaryWindow>>,
 ) {
     let window = window_query.single();
     let (width, height) = (window.width(), window.height());
 
-    for mut transform in &mut query {
-        let mut direction = Vec3::ZERO;
+    for (mut transform, player, velocity) in &mut query {
+        if player.is_some() {
+            let mut direction = Vec3::ZERO;
 
-        if input.pressed(KeyCode::KeyW) {
-            direction.y += 1.;
-        }
-        if input.pressed(KeyCode::KeyA) {
-            direction.x -= 1.;
-        }
-        if input.pressed(KeyCode::KeyS) {
-            direction.y -= 1.;
-        }
-        if input.pressed(KeyCode::KeyD) {
-            direction.x += 1.;
-        }
+            if input.pressed(KeyCode::KeyW) {
+                direction.y += 1.;
+            }
+            if input.pressed(KeyCode::KeyA) {
+                direction.x -= 1.;
+            }
+            if input.pressed(KeyCode::KeyS) {
+                direction.y -= 1.;
+            }
+            if input.pressed(KeyCode::KeyD) {
+                direction.x += 1.;
+            }
 
-        if direction != Vec3::ZERO {
-            direction = direction.normalize();
+            if direction != Vec3::ZERO {
+                direction = direction.normalize();
+            }
+
+            transform.translation += direction * ENTITY_SPEED * time.delta_seconds();
         }
-
-        transform.translation += direction * ENTITY_SPEED * time.delta_seconds();
-
+        if let Some(mut velocity) = velocity {
+            velocity.value = velocity.value.normalize();
+            transform.translation += velocity.value * ENTITY_SPEED * time.delta_seconds();
+    
+            if transform.translation.x > width || transform.translation.x < 0. {
+                velocity.value.x *= -1.;
+            }
+            if transform.translation.y > height || transform.translation.y < 0. {
+                velocity.value.y *= -1.;
+            }
+        }
         transform.translation.x = transform.translation.x.clamp(0., width);
         transform.translation.y = transform.translation.y.clamp(0., height);
     }
 }
 
-//Changes entity position each frame
-// fn update_position(
-//     window_query: Query<&Window, With<PrimaryWindow>>, 
-//     mut query: Query<(&mut Position, &Velocity, &Team), With<Team>>,
-//     time: Res<Time>,
-//     ) {
-//     let window = window_query.single();
-//     let (width, height) = (window.width(), window.height());
-//     let delta_seconds = time.delta_seconds();
-
-//     for (mut position, velocity, team) in &mut query {
-//         let displacement = velocity.value * delta_seconds;
-//         position.value += displacement;
-
-//         if position.value.x < 0.0 {
-//             position.value.x = 0.0;
-//         } else if position.value.x > width {
-//             position.value.x = width;
-//         }
-
-//         if position.value.y < 0.0 {
-//             position.value.y = 0.0;
-//         } else if position.value.y > height {
-//             position.value.y = height;
-//         }
-//     }
-// }
-
 fn draw_circle(
     mut gizmos: Gizmos, 
-    query: Query<&Transform, With<Team>>
+    query: Query<(&Transform, Option<&Player>, Option<&Enemy>)>
 ) {
-    for transform in &query {
-        gizmos.circle_2d(
-            Vec2::new(transform.translation.x, transform.translation.y),
-            ENTITY_SIZE,
-            Color::WHITE,
-        );
+    //Draw for player
+    for (transform, player, enemy) in &query {
+        if player.is_some() {
+            gizmos.circle_2d(
+                Vec2::new(transform.translation.x, transform.translation.y),
+                ENTITY_SIZE,
+                Color::WHITE,
+            );
+        }
+        if enemy.is_some() {
+            if player.is_some() {
+                gizmos.circle_2d(
+                    Vec2::new(transform.translation.x, transform.translation.y),
+                    ENTITY_SIZE,
+                    Color::srgb(255., 0., 255.),
+                );
+            }
+        }
     }
 }
