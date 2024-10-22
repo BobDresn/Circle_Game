@@ -4,6 +4,7 @@ use bevy::{
     window::{PresentMode, PrimaryWindow}
 };
 use rand::Rng;
+use std::time::Duration;
 
 const ENTITY_SIZE: f32 = 10.;
 const ENTITY_SPEED: f32 = 500.;
@@ -19,10 +20,14 @@ fn main() {
             ..default()
         }))
         .add_event::<AppExit>()
+        .insert_resource(
+            EnemySpawnTimer(
+                Timer::from_seconds(5., TimerMode::Repeating)))
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, movement)
         .add_systems(Update, draw_circle)
         .add_systems(PostUpdate, check_collisions)
+        .add_systems(PostUpdate, enemy_spawning)
         //.add_systems(PostUpdate, print_position)
         .run();
 }
@@ -37,6 +42,9 @@ struct Enemy;
 struct Velocity {
     value: Vec3,
 }
+
+#[derive(Resource)]
+struct EnemySpawnTimer(Timer);
 
 fn setup(mut commands: Commands, query: Query<&Window, With<PrimaryWindow>>) {
     let window = query.single();
@@ -65,6 +73,7 @@ fn setup(mut commands: Commands, query: Query<&Window, With<PrimaryWindow>>) {
         Velocity{ value: Vec3::new(rand_vel_x, rand_vel_y, 0.) },
         Transform::from_translation(Vec3::new(rand_x, rand_y, 0.)),
     ));
+    commands.insert_resource(EnemySpawnTimer(Timer::from_seconds(5., TimerMode::Repeating)));
 }
 
 //Handle keystrokes
@@ -161,6 +170,31 @@ fn check_collisions(
     }
 }
 
+fn enemy_spawning(
+    mut enemy_spawn_timer: ResMut<EnemySpawnTimer>,
+    mut commands: Commands,
+    time: Res<Time>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+) {
+    //Updates timer
+    enemy_spawn_timer.0.tick(time.delta());
+
+    //Checks time to spawn
+    if enemy_spawn_timer.0.finished() {
+        let window = window_query.single();
+        let mut rng = rand::thread_rng();
+        let rand_x = rng.gen_range(0. .. window.width());
+        let rand_y = rng.gen_range(0. .. window.height());
+        let rand_vel_x = rng.gen_range(-1000. ..=1000.);
+        let rand_vel_y = rng.gen_range(-1000. ..=1000.);
+
+        commands.spawn((
+            Enemy,
+            Velocity{ value: Vec3::new(rand_vel_x, rand_vel_y, 0.) },
+            Transform::from_translation(Vec3::new(rand_x, rand_y, 0.)),
+        ));
+    }
+}
 // fn print_position( 
 //     query: Query<&Transform, With<Enemy>> 
 // ) {
