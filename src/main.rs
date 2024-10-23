@@ -5,6 +5,7 @@ use bevy::{
     prelude::*,
     window::{PresentMode, PrimaryWindow}
 };
+use crate::GameState::*;
 
 const ENTITY_SIZE: f32 = 10.;
 const ENTITY_SPEED: f32 = 500.;
@@ -20,12 +21,13 @@ fn main() {
             ..default()
         }))
         .add_event::<AppExit>()
+        .insert_state(GameState::Running)
         .insert_resource(RandomNumberGenerator::new())
         .insert_resource(EnemySpawnTimer(Timer::from_seconds(5., TimerMode::Repeating)))
         .add_systems(Startup, (setup_window, setup, spawn_initial_enemy).chain())
         .add_systems(PreUpdate, (movement, draw_circle).chain())
-        .add_systems(Update, enemy_spawn_timer)
-        .add_systems(PostUpdate, check_collisions)
+        .add_systems(Update, enemy_spawn_timer.run_if(in_state(Running)))
+        .add_systems(PostUpdate, check_collisions.run_if(in_state(Running)))
         .run();
 }
 
@@ -52,6 +54,13 @@ struct EnemySpawnTimer(Timer);
 #[derive(Resource)]
 struct RandomNumberGenerator {
     rng: Arc<Mutex<StdRng>>,
+}
+
+#[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
+enum GameState {
+    #[default]
+    Paused,
+    Running,
 }
 
 impl RandomNumberGenerator {
@@ -144,7 +153,16 @@ fn movement(
     mut query: Query<(&mut Transform, Option<&Player>, Option<&mut Velocity>), With<Transform>>,
     time: Res<Time>,
     window: Res<WindowDimensions>,
+    state: Res<State<GameState>>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
+    if input.pressed(KeyCode::Space) {
+        match state.get() {
+            GameState::Paused => next_state.set(GameState::Running),
+            GameState::Running => next_state.set(GameState::Paused),
+        }
+    }
+
     for (mut transform, player, velocity) in &mut query {
         if player.is_some() {
             let mut direction = Vec3::ZERO;
