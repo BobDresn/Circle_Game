@@ -1,10 +1,10 @@
+use std::sync::{Arc, Mutex};
+use rand::prelude::*;
 use bevy::{
     app::AppExit,
     prelude::*,
     window::{PresentMode, PrimaryWindow}
 };
-use rand::Rng;
-use std::time::Duration;
 
 const ENTITY_SIZE: f32 = 10.;
 const ENTITY_SPEED: f32 = 500.;
@@ -20,15 +20,12 @@ fn main() {
             ..default()
         }))
         .add_event::<AppExit>()
-        .insert_resource(
-            EnemySpawnTimer(
-                Timer::from_seconds(5., TimerMode::Repeating)))
-        .add_systems(Startup, setup)
-        .add_systems(PreUpdate, movement)
-        .add_systems(Update, draw_circle)
+        .insert_resource(RandomNumberGenerator::new())
+        .insert_resource(EnemySpawnTimer(Timer::from_seconds(5., TimerMode::Repeating)))
+        .add_systems(Startup, (setup_window, setup, spawn_initial_enemy).chain())
+        .add_systems(PreUpdate, (movement, draw_circle).chain())
+        .add_systems(Update, enemy_spawn_timer)
         .add_systems(PostUpdate, check_collisions)
-        .add_systems(PostUpdate, enemy_spawning)
-        //.add_systems(PostUpdate, print_position)
         .run();
 }
 
@@ -44,11 +41,43 @@ struct Velocity {
 }
 
 #[derive(Resource)]
+struct WindowDimensions {
+    width: f32,
+    height: f32,
+}
+
+#[derive(Resource)]
 struct EnemySpawnTimer(Timer);
 
-fn setup(mut commands: Commands, query: Query<&Window, With<PrimaryWindow>>) {
+#[derive(Resource)]
+struct RandomNumberGenerator {
+    rng: Arc<Mutex<StdRng>>,
+}
+
+impl RandomNumberGenerator {
+    fn new() -> Self {
+        let rng = StdRng::from_entropy();
+        RandomNumberGenerator {
+            rng: Arc::new(Mutex::new(rng)),
+        }
+    }
+}
+
+fn setup_window(
+    mut commands: Commands,
+    query: Query<&Window, With<PrimaryWindow>>,) {
     let window = query.single();
-    let center = Vec2::new(window.width() / 2., window.height() / 2.);
+    commands.insert_resource(WindowDimensions {
+        width: window.width(),
+        height: window.height(),
+    });
+}
+
+fn setup(
+    mut commands: Commands, 
+    window: Res<WindowDimensions>,
+) {
+    let center = Vec2::new(window.width / 2., window.height / 2.);
 
     //Camera
     commands.spawn(Camera2dBundle{
@@ -61,19 +90,52 @@ fn setup(mut commands: Commands, query: Query<&Window, With<PrimaryWindow>>) {
             Player,
             Transform::from_translation(Vec3::new(center.x, center.y, 0.)),
     ));
+}
 
-    let mut rng = rand::thread_rng();
-    let rand_x = rng.gen_range(0. .. window.width());
-    let rand_y = rng.gen_range(0. .. window.height());
-    let rand_vel_x = rng.gen_range(-1000. ..=1000.);
-    let rand_vel_y = rng.gen_range(-1000. ..=1000.);
+fn enemy_spawn(
+    mut commands: Commands,
+    rng: Res<RandomNumberGenerator>,
+    window: Res<WindowDimensions>,
+) {
+    //Unlocks rng generator
+    //Removes overhead of creating new generator every time
+    let mut rng_locked = rng.rng.lock().unwrap();
+
+    //Gets coordinates inside window bounds
+    let rand_x = rng_locked.gen_range(0. .. window.width);
+    let rand_y = rng_locked.gen_range(0. .. window.height);
+
+    //Gets random vector direction speeds
+    let rand_vel_x = rng_locked.gen_range(-1000. ..=1000.);
+    let rand_vel_y = rng_locked.gen_range(-1000. ..=1000.);
 
     commands.spawn((
         Enemy,
         Velocity{ value: Vec3::new(rand_vel_x, rand_vel_y, 0.) },
         Transform::from_translation(Vec3::new(rand_x, rand_y, 0.)),
     ));
-    commands.insert_resource(EnemySpawnTimer(Timer::from_seconds(5., TimerMode::Repeating)));
+}
+
+fn spawn_initial_enemy(
+    commands: Commands,
+    rng: Res<RandomNumberGenerator>,
+    window: Res<WindowDimensions>,
+) {
+    enemy_spawn(commands, rng, window);
+}
+
+fn enemy_spawn_timer(
+    time: Res<Time>,
+    mut timer: ResMut<EnemySpawnTimer>,
+    commands: Commands,
+    rng: Res<RandomNumberGenerator>,
+    window: Res<WindowDimensions>,
+) {
+    timer.0.tick(time.delta());
+
+    if timer.0.finished() {
+        enemy_spawn(commands, rng, window);
+    }
 }
 
 //Handle keystrokes
@@ -81,11 +143,8 @@ fn movement(
     input: Res<ButtonInput<KeyCode>>,
     mut query: Query<(&mut Transform, Option<&Player>, Option<&mut Velocity>), With<Transform>>,
     time: Res<Time>,
-    window_query: Query<&Window, With<PrimaryWindow>>,
+    window: Res<WindowDimensions>,
 ) {
-    let window = window_query.single();
-    let (width, height) = (window.width(), window.height());
-
     for (mut transform, player, velocity) in &mut query {
         if player.is_some() {
             let mut direction = Vec3::ZERO;
@@ -113,15 +172,15 @@ fn movement(
             velocity.value = velocity.value.normalize();
             transform.translation += velocity.value * ENTITY_SPEED * time.delta_seconds();
     
-            if transform.translation.x > width || transform.translation.x < 0. {
+            if transform.translation.x > window.width || transform.translation.x < 0. {
                 velocity.value.x *= -1.;
             }
-            if transform.translation.y > height || transform.translation.y < 0. {
+            if transform.translation.y > window.height || transform.translation.y < 0. {
                 velocity.value.y *= -1.;
             }
         }
-        transform.translation.x = transform.translation.x.clamp(0., width);
-        transform.translation.y = transform.translation.y.clamp(0., height);
+        transform.translation.x = transform.translation.x.clamp(0., window.width);
+        transform.translation.y = transform.translation.y.clamp(0., window.height);
     }
 }
 
@@ -138,7 +197,7 @@ fn draw_circle(
             Color::WHITE,
         );
     }
-
+    //Draw enemy
     for transform in &enemy_query {
         gizmos.circle_2d(
             Vec2::new(transform.translation.x, transform.translation.y),
@@ -163,42 +222,12 @@ fn check_collisions(
     let player_center = Vec2::new(player_transform.translation.x, player_transform.translation.y);
 
     for transform in &enemy_query {
-        let enemy_center = Vec2::new(transform.translation.x, transform.translation.y);
-        if check_circle_collision(player_center, enemy_center) {
-            exit_events.send(AppExit::Success);
+        if transform.translation.x <= player_center.x + (ENTITY_SIZE * 2.) && transform.translation.x >= player_center.x - (ENTITY_SIZE * 2.) {
+            let enemy_center = Vec2::new(transform.translation.x, transform.translation.y);
+            if check_circle_collision(player_center, enemy_center) {
+                exit_events.send(AppExit::Success);
+            }
         }
+        
     }
 }
-
-fn enemy_spawning(
-    mut enemy_spawn_timer: ResMut<EnemySpawnTimer>,
-    mut commands: Commands,
-    time: Res<Time>,
-    window_query: Query<&Window, With<PrimaryWindow>>,
-) {
-    //Updates timer
-    enemy_spawn_timer.0.tick(time.delta());
-
-    //Checks time to spawn
-    if enemy_spawn_timer.0.finished() {
-        let window = window_query.single();
-        let mut rng = rand::thread_rng();
-        let rand_x = rng.gen_range(0. .. window.width());
-        let rand_y = rng.gen_range(0. .. window.height());
-        let rand_vel_x = rng.gen_range(-1000. ..=1000.);
-        let rand_vel_y = rng.gen_range(-1000. ..=1000.);
-
-        commands.spawn((
-            Enemy,
-            Velocity{ value: Vec3::new(rand_vel_x, rand_vel_y, 0.) },
-            Transform::from_translation(Vec3::new(rand_x, rand_y, 0.)),
-        ));
-    }
-}
-// fn print_position( 
-//     query: Query<&Transform, With<Enemy>> 
-// ) {
-//     for transform in &query {
-//         println!("{}, {}", transform.translation.x, transform.translation.y);
-//     }
-// }
