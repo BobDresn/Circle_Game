@@ -38,7 +38,7 @@ fn main() {
         .add_systems(Startup, (setup_window, setup, setup_enemy_pool, enemy_spawn).chain())
         .add_systems(PreUpdate, handle_space)
         .add_systems(PreUpdate, movement.run_if(in_state(GameState::Running)))
-        .add_systems(PreUpdate, draw_circle.run_if(in_state(GameState::Running)))
+        .add_systems(PreUpdate, (draw_player, draw_enemies).chain().run_if(in_state(GameState::Running)))
         .add_systems(Update, enemy_spawn_timer.run_if(in_state(GameState::Running)))
         .add_systems(PostUpdate, check_collisions.run_if(in_state(GameState::Running)))
         .run();

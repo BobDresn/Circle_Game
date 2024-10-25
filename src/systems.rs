@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use rand::{thread_rng, Rng};
+use iyes_perf_ui::prelude::*;
 
 use crate::*;
 
@@ -25,19 +26,20 @@ pub fn setup(
         ..default()
     });
 
+    //Player
+    commands.spawn((
+            Player,
+            Transform::from_translation(Vec3::new(center.x, center.y, 0.)),
+    ));
+
     commands.spawn((
         PerfUiRoot {
             display_labels: false,
             layout_horizontal: true,
             ..default()
         },
+        PerfUiEntryFPSWorst::default(),
         PerfUiEntryFPS::default(),
-    ));
-
-    //Player
-    commands.spawn((
-            Player,
-            Transform::from_translation(Vec3::new(center.x, center.y, 0.)),
     ));
 }
 
@@ -138,6 +140,8 @@ pub fn movement(
 pub fn handle_space (
     input: Res<ButtonInput<KeyCode>>,
     state: Res<State<GameState>>,
+    query: Query<&mut Enemy, With<Velocity>>,
+    timer: ResMut<EnemySpawnTimer>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     if input.just_pressed(KeyCode::Space) {
@@ -145,17 +149,15 @@ pub fn handle_space (
             GameState::Paused => next_state.set(GameState::Running),
             GameState::Start => next_state.set(GameState::Running),
             GameState::Running => next_state.set(GameState::Paused),
-            _ => (),
+            GameState::GameOver => reset(next_state, query, timer),
         }
     }
 }
 
-pub fn draw_circle(
-    mut gizmos: Gizmos, 
+pub fn draw_player(
+    mut gizmos: Gizmos,
     player_query: Query<&Transform, With<Player>>,
-    enemy_query: Query<(&Transform, &mut Enemy), With<Enemy>>
-) {
-    //Draw for player
+){
     for transform in &player_query {
         gizmos.circle_2d(
             Vec2::new(transform.translation.x, transform.translation.y),
@@ -163,7 +165,11 @@ pub fn draw_circle(
             Color::WHITE,
         );
     }
-    //Draw enemy
+}
+
+pub fn draw_enemies(mut gizmos: Gizmos, 
+    enemy_query: Query<(&Transform, &mut Enemy), With<Enemy>>
+){
     for (transform, enemy) in &enemy_query {
         if enemy.alive {
             gizmos.circle_2d(
@@ -193,4 +199,19 @@ pub fn check_collisions(
             }
         }
     }
+}
+
+pub fn reset(
+    mut next_state: ResMut<NextState<GameState>>,
+    mut query: Query<&mut Enemy, With<Velocity>>,
+    mut timer: ResMut<EnemySpawnTimer>,
+) {
+    for mut enemy in &mut query {
+        if enemy.alive {
+            enemy.alive = false;
+        }
+    }
+    timer.0.reset();
+    next_state.set(GameState::Running);
+    enemy_spawn(query);
 }
