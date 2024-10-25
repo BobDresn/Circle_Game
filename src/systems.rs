@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use rand::{thread_rng, Rng};
+
 use crate::*;
 
 pub fn setup_window(
@@ -23,6 +24,15 @@ pub fn setup(
         transform: Transform::from_xyz(center.x, center.y, 999.9),
         ..default()
     });
+
+    commands.spawn((
+        PerfUiRoot {
+            display_labels: false,
+            layout_horizontal: true,
+            ..default()
+        },
+        PerfUiEntryFPS::default(),
+    ));
 
     //Player
     commands.spawn((
@@ -125,6 +135,21 @@ pub fn movement(
     }
 }
 
+pub fn handle_space (
+    input: Res<ButtonInput<KeyCode>>,
+    state: Res<State<GameState>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if input.just_pressed(KeyCode::Space) {
+        match state.get() {
+            GameState::Paused => next_state.set(GameState::Running),
+            GameState::Start => next_state.set(GameState::Running),
+            GameState::Running => next_state.set(GameState::Paused),
+            _ => (),
+        }
+    }
+}
+
 pub fn draw_circle(
     mut gizmos: Gizmos, 
     player_query: Query<&Transform, With<Player>>,
@@ -151,9 +176,9 @@ pub fn draw_circle(
 }
 
 pub fn check_collisions(
-    mut exit_events: EventWriter<AppExit>,
     player_query: Query<&Transform, With<Player>>,
     enemy_query: Query<(&Transform, &Enemy), With<Enemy>>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
     let player_transform = &player_query.single();
     let player_center = Vec2::new(player_transform.translation.x, player_transform.translation.y);
@@ -163,7 +188,7 @@ pub fn check_collisions(
             if transform.translation.x <= player_center.x + (ENTITY_SIZE * 2.) && transform.translation.x >= player_center.x - (ENTITY_SIZE * 2.) {
                 let enemy_center = Vec2::new(transform.translation.x, transform.translation.y);
                 if check_circle_collision(player_center, enemy_center) {
-                    exit_events.send(AppExit::Success);
+                    next_state.set(GameState::GameOver);
                 }
             }
         }

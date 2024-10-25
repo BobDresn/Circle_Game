@@ -3,13 +3,16 @@ use bevy::{
     prelude::*,
     window::{PresentMode, PrimaryWindow}
 };
+use iyes_perf_ui::prelude::*;
 
 pub mod components;
+pub mod gamestate;
 pub mod resources;
 pub mod systems;
 pub mod utilities;
 
 use crate::components::*;
+use crate::gamestate::*;
 use crate::resources::*;
 use crate::systems::*;
 use crate::utilities::*;
@@ -27,13 +30,16 @@ fn main() {
             }),
             ..default()
         }))
-        .add_event::<AppExit>()
+        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
+        .add_plugins(PerfUiPlugin)
         .insert_resource(EnemySpawnTimer(Timer::from_seconds(3., TimerMode::Repeating)))
-
+        .insert_state(GameState::Start)
+        .add_event::<AppExit>()
         .add_systems(Startup, (setup_window, setup, setup_enemy_pool, enemy_spawn).chain())
-        .add_systems(PreUpdate, movement)
-        .add_systems(PreUpdate, draw_circle)
-        .add_systems(Update, enemy_spawn_timer)
-        .add_systems(PostUpdate, check_collisions)
+        .add_systems(PreUpdate, handle_space)
+        .add_systems(PreUpdate, movement.run_if(in_state(GameState::Running)))
+        .add_systems(PreUpdate, draw_circle.run_if(in_state(GameState::Running)))
+        .add_systems(Update, enemy_spawn_timer.run_if(in_state(GameState::Running)))
+        .add_systems(PostUpdate, check_collisions.run_if(in_state(GameState::Running)))
         .run();
 }
