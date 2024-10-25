@@ -21,10 +21,12 @@ pub fn setup(
     let center = Vec2::new(window.width / 2., window.height / 2.);
 
     //Camera
-    commands.spawn(Camera2dBundle{
-        transform: Transform::from_xyz(center.x, center.y, 999.9),
-        ..default()
-    });
+    commands.spawn((
+        Camera2dBundle{
+            transform: Transform::from_xyz(center.x, center.y, 999.9),
+            ..default()
+        },
+    ));
 
     //Player
     commands.spawn((
@@ -51,7 +53,7 @@ pub fn setup_enemy_pool(
 
     for _ in 0..100 {
         commands.spawn((
-            Enemy { alive: false },
+            Enemy,
             Velocity { 
                 value: Vec3::new(
                     rng.gen_range(0. .. window.width), 
@@ -69,25 +71,25 @@ pub fn setup_enemy_pool(
 }
 
 pub fn enemy_spawn(
-    mut query: Query<&mut Enemy, With<Velocity>>,
+    mut commands: Commands,
+    query: Query<(Entity, &Enemy), Without<Alive>>,
 ) {
-    for mut enemy in &mut query {
-        if !enemy.alive {
-            enemy.alive = true;
-            break;
-        }
+    for (entity, _enemy) in &query {
+        commands.entity(entity).insert(Alive);
+        break;
     }
 }
 
 pub fn enemy_spawn_timer(
+    commands: Commands,
     time: Res<Time>,
     mut timer: ResMut<EnemySpawnTimer>,
-    query: Query<&mut Enemy, With<Velocity>>,
+    query: Query<(Entity, &Enemy), Without<Alive>>,
 ) {
     timer.0.tick(time.delta());
 
     if timer.0.finished() {
-        enemy_spawn(query);
+        enemy_spawn(commands, query);
     }
 }
 
@@ -138,9 +140,11 @@ pub fn movement(
 }
 
 pub fn handle_space (
+    commands: Commands,
     input: Res<ButtonInput<KeyCode>>,
     state: Res<State<GameState>>,
-    query: Query<&mut Enemy, With<Velocity>>,
+    query: Query<(Entity, &Alive)>,
+    dead_enemies: Query<(Entity, &Enemy),Without<Alive>>,
     timer: ResMut<EnemySpawnTimer>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
@@ -149,7 +153,7 @@ pub fn handle_space (
             GameState::Paused => next_state.set(GameState::Running),
             GameState::Start => next_state.set(GameState::Running),
             GameState::Running => next_state.set(GameState::Paused),
-            GameState::GameOver => reset(next_state, query, timer),
+            GameState::GameOver => reset(commands, next_state, query, dead_enemies, timer),
         }
     }
 }
@@ -168,50 +172,47 @@ pub fn draw_player(
 }
 
 pub fn draw_enemies(mut gizmos: Gizmos, 
-    enemy_query: Query<(&Transform, &mut Enemy), With<Enemy>>
+    enemy_query: Query<&Transform, With<Alive>>
 ){
-    for (transform, enemy) in &enemy_query {
-        if enemy.alive {
-            gizmos.circle_2d(
-                Vec2::new(transform.translation.x, transform.translation.y),
-                ENTITY_SIZE,
-                Color::srgb(255., 0., 255.),
-            );
-        }
+    for transform in &enemy_query {
+        gizmos.circle_2d(
+            Vec2::new(transform.translation.x, transform.translation.y),
+            ENTITY_SIZE,
+            Color::srgb(255., 0., 255.),
+        );
+        
     }
 }
 
 pub fn check_collisions(
     player_query: Query<&Transform, With<Player>>,
-    enemy_query: Query<(&Transform, &Enemy), With<Enemy>>,
+    enemy_query: Query<(&Transform, &Enemy), With<Alive>>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     let player_transform = &player_query.single();
     let player_center = Vec2::new(player_transform.translation.x, player_transform.translation.y);
 
-    for (transform, enemy) in &enemy_query {
-        if enemy.alive {
-            if transform.translation.x <= player_center.x + (ENTITY_SIZE * 2.) && transform.translation.x >= player_center.x - (ENTITY_SIZE * 2.) {
-                let enemy_center = Vec2::new(transform.translation.x, transform.translation.y);
-                if check_circle_collision(player_center, enemy_center) {
-                    next_state.set(GameState::GameOver);
-                }
+    for (transform, _enemy) in &enemy_query {
+        if transform.translation.x <= player_center.x + (ENTITY_SIZE * 2.) && transform.translation.x >= player_center.x - (ENTITY_SIZE * 2.) {
+            let enemy_center = Vec2::new(transform.translation.x, transform.translation.y);
+            if check_circle_collision(player_center, enemy_center) {
+                next_state.set(GameState::GameOver);
             }
         }
     }
 }
 
 pub fn reset(
+    mut commands: Commands,
     mut next_state: ResMut<NextState<GameState>>,
-    mut query: Query<&mut Enemy, With<Velocity>>,
+    query: Query<(Entity, &Alive)>,
+    dead_enemies: Query<(Entity, &Enemy),Without<Alive>>,
     mut timer: ResMut<EnemySpawnTimer>,
 ) {
-    for mut enemy in &mut query {
-        if enemy.alive {
-            enemy.alive = false;
-        }
+    for(entity, _alive) in &query {
+        commands.entity(entity).remove::<Alive>();
     }
     timer.0.reset();
     next_state.set(GameState::Running);
-    enemy_spawn(query);
+    enemy_spawn(commands, dead_enemies);
 }

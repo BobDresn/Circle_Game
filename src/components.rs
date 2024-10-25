@@ -4,9 +4,10 @@ use bevy::prelude::*;
 pub struct Player;
 
 #[derive(Component)]
-pub struct Enemy {
-    pub alive: bool
-}
+pub struct Enemy;
+
+#[derive(Component)]
+pub struct Alive;
 
 #[derive(Component)]
 pub struct Velocity {
