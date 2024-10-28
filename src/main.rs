@@ -5,17 +5,19 @@ use bevy::{
 };
 use iyes_perf_ui::prelude::*;
 
-pub mod components;
 pub mod gamestate;
 pub mod resources;
 pub mod systems;
 pub mod utilities;
+pub mod player;
+pub mod enemy;
 
-use crate::components::*;
 use crate::gamestate::*;
 use crate::resources::*;
 use crate::systems::*;
 use crate::utilities::*;
+use crate::player::*;
+use crate::enemy::*;
 
 const ENTITY_SIZE: f32 = 10.;
 const ENTITY_SPEED: f32 = 500.;
@@ -37,7 +39,8 @@ fn main() {
         .add_event::<AppExit>()
         .add_systems(Startup, (setup_window, setup, setup_enemy_pool, enemy_spawn).chain())
         .add_systems(PreUpdate, handle_space)
-        .add_systems(PreUpdate, movement.run_if(in_state(GameState::Running)))
+        .add_systems(PreUpdate, player_movement.run_if(in_state(GameState::Running)))
+        .add_systems(PreUpdate, enemy_movement.run_if(in_state(GameState::Running)))
         .add_systems(PreUpdate, (draw_player, draw_enemies).chain().run_if(in_state(GameState::Running)))
         .add_systems(Update, enemy_spawn_timer.run_if(in_state(GameState::Running)))
         .add_systems(PostUpdate, check_collisions.run_if(in_state(GameState::Running)))

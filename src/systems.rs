@@ -72,9 +72,12 @@ pub fn setup_enemy_pool(
 
 pub fn enemy_spawn(
     mut commands: Commands,
-    query: Query<(Entity, &Enemy), Without<Alive>>,
+    enemy_query: Query<(Entity, &Enemy), Without<Alive>>,
+    player_query: Query<&Transform, With<Player>>
 ) {
-    for (entity, _enemy) in &query {
+    //let player_center = player_query.single();
+    //let player = Vec2::new(player_center.translation.x, player_center.translation.y);
+    for (entity, _enemy) in &enemy_query {
         commands.entity(entity).insert(Alive);
         break;
     }
@@ -82,57 +85,64 @@ pub fn enemy_spawn(
 
 pub fn enemy_spawn_timer(
     commands: Commands,
+    enemy_query: Query<(Entity, &Enemy), Without<Alive>>,
+    player_query: Query<&Transform, With<Player>>,
     time: Res<Time>,
     mut timer: ResMut<EnemySpawnTimer>,
-    query: Query<(Entity, &Enemy), Without<Alive>>,
 ) {
     timer.0.tick(time.delta());
 
     if timer.0.finished() {
-        enemy_spawn(commands, query);
+        enemy_spawn(commands, enemy_query, player_query);
     }
 }
 
-//Handle keystrokes
-pub fn movement(
+pub fn player_movement(
+    mut player_query: Query<&mut Transform, With<Player>>,
     input: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(&mut Transform, Option<&Player>, Option<&mut Velocity>), With<Transform>>,
     time: Res<Time>,
     window: Res<WindowDimensions>,
 ) {
-    for (mut transform, player, velocity) in &mut query {
-        if player.is_some() {
-            let mut direction = Vec3::ZERO;
+    let mut player = player_query.single_mut();
+    let mut direction = Vec3::ZERO;
 
-            if input.pressed(KeyCode::KeyW) {
-                direction.y += 1.;
-            }
-            if input.pressed(KeyCode::KeyA) {
-                direction.x -= 1.;
-            }
-            if input.pressed(KeyCode::KeyS) {
-                direction.y -= 1.;
-            }
-            if input.pressed(KeyCode::KeyD) {
-                direction.x += 1.;
-            }
+    if input.pressed(KeyCode::KeyW) {
+        direction.y += 1.;
+    }
+    if input.pressed(KeyCode::KeyA) {
+        direction.x -= 1.;
+    }
+    if input.pressed(KeyCode::KeyS) {
+        direction.y -= 1.;
+    }
+    if input.pressed(KeyCode::KeyD) {
+        direction.x += 1.;
+    }
 
-            if direction != Vec3::ZERO {
-                direction = direction.normalize();
-            }
+    if direction != Vec3::ZERO {
+        direction = direction.normalize();
+    }
 
-            transform.translation += direction * ENTITY_SPEED * time.delta_seconds();
+    player.translation += direction * ENTITY_SPEED * time.delta_seconds();
+
+    player.translation.x = player.translation.x.clamp(0., window.width);
+    player.translation.y = player.translation.y.clamp(0., window.height);
+}
+
+pub fn enemy_movement(
+    mut enemy_query: Query<(&mut Transform, &mut Velocity), With<Alive>>,
+    time: Res<Time>,
+    window: Res<WindowDimensions>,
+) {
+    for (mut transform, mut velocity) in &mut enemy_query {
+        velocity.value = velocity.value.normalize();
+        transform.translation += velocity.value * ENTITY_SPEED * time.delta_seconds();
+
+        if transform.translation.x > window.width || transform.translation.x < 0. {
+            velocity.value.x *= -1.;
         }
-        if let Some(mut velocity) = velocity {
-            velocity.value = velocity.value.normalize();
-            transform.translation += velocity.value * ENTITY_SPEED * time.delta_seconds();
-    
-            if transform.translation.x > window.width || transform.translation.x < 0. {
-                velocity.value.x *= -1.;
-            }
-            if transform.translation.y > window.height || transform.translation.y < 0. {
-                velocity.value.y *= -1.;
-            }
+        if transform.translation.y > window.height || transform.translation.y < 0. {
+            velocity.value.y *= -1.;
         }
         transform.translation.x = transform.translation.x.clamp(0., window.width);
         transform.translation.y = transform.translation.y.clamp(0., window.height);
@@ -141,46 +151,21 @@ pub fn movement(
 
 pub fn handle_space (
     commands: Commands,
+    enemy_query: Query<(Entity, &Enemy), Without<Alive>>,
+    player_query: Query<&Transform, With<Player>>,
+    alive_enemy_query: Query<(Entity, &Enemy), With<Alive>>,
+    mut next_state: ResMut<NextState<GameState>>,
+    timer: ResMut<EnemySpawnTimer>,
     input: Res<ButtonInput<KeyCode>>,
     state: Res<State<GameState>>,
-    query: Query<(Entity, &Alive)>,
-    dead_enemies: Query<(Entity, &Enemy),Without<Alive>>,
-    timer: ResMut<EnemySpawnTimer>,
-    mut next_state: ResMut<NextState<GameState>>,
 ) {
     if input.just_pressed(KeyCode::Space) {
         match state.get() {
             GameState::Paused => next_state.set(GameState::Running),
             GameState::Start => next_state.set(GameState::Running),
             GameState::Running => next_state.set(GameState::Paused),
-            GameState::GameOver => reset(commands, next_state, query, dead_enemies, timer),
+            GameState::GameOver => reset(commands, enemy_query, player_query, alive_enemy_query, next_state, timer),
         }
-    }
-}
-
-pub fn draw_player(
-    mut gizmos: Gizmos,
-    player_query: Query<&Transform, With<Player>>,
-){
-    for transform in &player_query {
-        gizmos.circle_2d(
-            Vec2::new(transform.translation.x, transform.translation.y),
-            ENTITY_SIZE,
-            Color::WHITE,
-        );
-    }
-}
-
-pub fn draw_enemies(mut gizmos: Gizmos, 
-    enemy_query: Query<&Transform, With<Alive>>
-){
-    for transform in &enemy_query {
-        gizmos.circle_2d(
-            Vec2::new(transform.translation.x, transform.translation.y),
-            ENTITY_SIZE,
-            Color::srgb(255., 0., 255.),
-        );
-        
     }
 }
 
@@ -204,15 +189,16 @@ pub fn check_collisions(
 
 pub fn reset(
     mut commands: Commands,
+    enemy_query: Query<(Entity, &Enemy), Without<Alive>>,
+    player_query: Query<&Transform, With<Player>>,
+    alive_enemy_query: Query<(Entity, &Enemy), With<Alive>>,
     mut next_state: ResMut<NextState<GameState>>,
-    query: Query<(Entity, &Alive)>,
-    dead_enemies: Query<(Entity, &Enemy),Without<Alive>>,
     mut timer: ResMut<EnemySpawnTimer>,
 ) {
-    for(entity, _alive) in &query {
+    for (entity, _enemy) in &alive_enemy_query {
         commands.entity(entity).remove::<Alive>();
     }
     timer.0.reset();
     next_state.set(GameState::Running);
-    enemy_spawn(commands, dead_enemies);
+    enemy_spawn(commands, enemy_query, player_query);
 }
